@@ -46,5 +46,7 @@ async def test_healthcheck_true_with_mocked_connection() -> None:
     await db.dispose()
 
 
-def test_base_metadata_is_empty_in_phase_01() -> None:
-    assert not Base.metadata.tables
+def test_base_metadata_contains_phase_04_models() -> None:
+    import app.database.models  # noqa: F401
+
+    assert "games" in Base.metadata.tables

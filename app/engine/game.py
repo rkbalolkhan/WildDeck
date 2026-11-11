@@ -604,8 +604,47 @@ class Game:
             result[int(key)] = int(value)
         return result
 
+    def _serialize_pending_penalty(self) -> dict[str, Any] | None:
+        if self.pending_penalty is None:
+            return None
+        res = dict(self.pending_penalty)
+        p_type = res.get("type")
+        if isinstance(p_type, CardType):
+            res["type"] = p_type.value
+        return res
+
+    def _serialize_pending_challenge(self) -> dict[str, Any] | None:
+        if self.pending_challenge is None:
+            return None
+        res = dict(self.pending_challenge)
+        prev_color = res.get("previous_color")
+        if isinstance(prev_color, CardColor):
+            res["previous_color"] = prev_color.value
+        return res
+
+    @staticmethod
+    def _deserialize_pending_penalty(data: dict[str, Any] | None) -> dict[str, Any] | None:
+        if data is None:
+            return None
+        res = dict(data)
+        p_type = res.get("type")
+        if isinstance(p_type, str):
+            res["type"] = CardType(p_type)
+        return res
+
+    @staticmethod
+    def _deserialize_pending_challenge(data: dict[str, Any] | None) -> dict[str, Any] | None:
+        if data is None:
+            return None
+        res = dict(data)
+        prev_color = res.get("previous_color")
+        if isinstance(prev_color, str):
+            res["previous_color"] = CardColor(prev_color)
+        return res
+
     def to_dict(self) -> dict[str, Any]:
         return {
+            "schema_version": 1,
             "game_id": self.game_id,
             "status": self.status.value,
             "players": [p.to_dict() for p in self.players],
@@ -618,8 +657,9 @@ class Game:
             "config": self.config.to_dict(),
             "uno_declarations": {int(k): bool(v) for k, v in self.uno_declarations.items()},
             "uno_vulnerable": {int(k): int(v) for k, v in self.uno_vulnerable.items()},
-            "pending_penalty": self.pending_penalty,
-            "pending_challenge": self.pending_challenge,
+            "uno_window_player_id": self._uno_window_player_id,
+            "pending_penalty": self._serialize_pending_penalty(),
+            "pending_challenge": self._serialize_pending_challenge(),
             "round_scores": {int(k): int(v) for k, v in self.round_scores.items()},
             "match_scores": {int(k): int(v) for k, v in self.match_scores.items()},
             "round_winner_id": self.round_winner_id,
@@ -629,6 +669,9 @@ class Game:
     @classmethod
     def from_dict(cls, data: dict[str, Any], rng: random.Random | None = None) -> Game:
         rng = rng or random.Random()
+        schema_version = data.get("schema_version", 1)
+        if schema_version != 1:
+            raise InvalidGameStateError(f"Unsupported snapshot schema version: {schema_version}")
         try:
             config_data = data.get("config", {})
             config = GameConfig.from_dict(config_data)
@@ -651,15 +694,18 @@ class Game:
                 active_color=CardColor(data["active_color"]),
                 winner_id=data.get("winner_id"),
                 drawn_card_id=data.get("drawn_card_id"),
-                uno_declarations=cls._restore_numeric_dict(data.get("uno_declarations")),
+                uno_declarations={
+                    int(k): bool(v) for k, v in (data.get("uno_declarations") or {}).items()
+                },
                 uno_vulnerable=cls._restore_numeric_dict(data.get("uno_vulnerable")),
-                pending_penalty=data.get("pending_penalty"),
-                pending_challenge=data.get("pending_challenge"),
+                pending_penalty=cls._deserialize_pending_penalty(data.get("pending_penalty")),
+                pending_challenge=cls._deserialize_pending_challenge(data.get("pending_challenge")),
                 round_scores=round_scores,
                 match_scores=match_scores,
                 round_winner_id=data.get("round_winner_id"),
                 match_winner_id=data.get("match_winner_id"),
             )
+            current._uno_window_player_id = data.get("uno_window_player_id")
         except GameError:
             raise
         except (KeyError, ValueError, TypeError) as exc:
