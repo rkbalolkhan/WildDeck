@@ -2,6 +2,11 @@
 
 from aiogram import Router
 
-from app.bot.handlers import errors
+from app.bot.handlers import callbacks, errors, game, start
 
-ROUTERS: tuple[Router, ...] = (errors.router,)
+ROUTERS: tuple[Router, ...] = (
+    errors.router,
+    start.router,
+    game.router,
+    callbacks.router,
+)
