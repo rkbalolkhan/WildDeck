@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     bot_mode: Literal["polling", "webhook"] = "polling"
     bot_webhook_url: str | None = None
     bot_webhook_secret: SecretStr | None = None
-    bot_webhook_host: str = "0.0.0.0"  # noqa: S104 - container-friendly default
+    bot_webhook_host: str = "127.0.0.1"
     bot_webhook_port: int = Field(default=8080, ge=1, le=65535)
 
     database_url: SecretStr = SecretStr("postgresql+asyncpg://uno:uno@localhost:5432/uno")

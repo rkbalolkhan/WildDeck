@@ -2,14 +2,14 @@
 
 Multiplayer UNO for Telegram groups.
 
-- **Phase 01**: Backend foundation (config, database lifecycle, logging, Docker, tests).
+- **Phase 01**: Backend foundation (config, database lifecycle, logging, tests).
 - **Phase 02**: Pure-Python core UNO game engine.
 - **Phase 03**: Advanced UNO mechanics (WDF challenge, stacking, custom scoring, auto-UNO).
 - **Phase 04**: Database persistence, snapshot restoration, optimistic concurrency, and game recovery.
 
 ## Stack
-Python 3.12+, aiogram 3, PostgreSQL 16 + SQLAlchemy 2 (async, asyncpg), Alembic, Redis (optional),
-Pydantic Settings, pytest + pytest-asyncio, ruff, Docker Compose.
+Python 3.12+, aiogram 3, PostgreSQL 16 + SQLAlchemy 2 (async, asyncpg), Alembic,
+Pydantic Settings, pytest + pytest-asyncio, ruff.
 
 ## Architecture
 ```
@@ -61,57 +61,129 @@ Optimistic locking is enforced on every game state save:
 - Advanced mechanics (pending draw penalties, stacked counts, UNO windows, WDF challenge snapshots and hidden cards, round scores, match scores) are fully preserved.
 - `GamePersistenceService.recover_active_games()` iterates over all active games after an application restart, restoring valid games and logging corrupted games with structured metadata (`game_id`, `error_category`) without crashing or leaking sensitive hand contents.
 
-## Prerequisites
-Python 3.12+, PostgreSQL 16 (or Docker), a bot token from @BotFather.
+## Native Development Setup
 
-## Local Development
-```bash
-# Setup virtual environment and dependencies
+All development, testing, database migrations, and execution run natively on the host machine.
+
+### 1. Prerequisites
+- Python 3.12+ (64-bit)
+- PostgreSQL 16+ installed natively
+- A Telegram bot token from [@BotFather](https://t.me/BotFather)
+
+### 2. Python Environment Setup
+
+In PowerShell:
+```powershell
+# Create and activate virtual environment
 python -m venv .venv
-.venv\Scripts\activate  # Windows (or source .venv/bin/activate on Linux/macOS)
-pip install -e .
+.\.venv\Scripts\Activate.ps1
 
-cp .env.example .env    # configure BOT_TOKEN and DATABASE_URL
+# Upgrade pip and install package in editable mode with development dependencies
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
 ```
 
-Quick local PostgreSQL:
+On Linux/macOS:
 ```bash
-docker compose up -d postgres
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
 ```
 
-## Migrations
-Alembic manages async schema migrations.
+### 3. Native PostgreSQL Setup
 
-```bash
-# Run online migrations against target database
+#### Installation
+- **Windows**: Download the official installer from [postgresql.org](https://www.postgresql.org/download/windows/) or install via winget:
+  ```powershell
+  winget install PostgreSQL.PostgreSQL
+  ```
+- **macOS**: `brew install postgresql@16 && brew services start postgresql@16`
+- **Linux (Ubuntu/Debian)**: `sudo apt install postgresql postgresql-contrib && sudo systemctl start postgresql`
+
+#### Windows Service Management
+To check whether the PostgreSQL Windows service is running, find the installed service name:
+```powershell
+# Discover the PostgreSQL service name
+Get-Service *postgres*
+
+# Start the service if not running (substitute your service name, e.g. postgresql-x64-16)
+Start-Service postgresql*
+
+# Verify service status
+Get-Service postgresql*
+```
+
+#### Database Creation
+Create the development and test databases using `psql` or `createdb`:
+```powershell
+# Using psql (enter the superuser password when prompted)
+psql -U postgres -c "CREATE DATABASE wilddeck;"
+psql -U postgres -c "CREATE DATABASE wilddeck_test;"
+```
+
+#### Configure Environment Variables
+Copy `.env.example` to `.env` and configure your credentials:
+```powershell
+Copy-Item .env.example .env
+```
+
+Edit `.env`:
+```env
+BOT_TOKEN=123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ_01234567
+BOT_MODE=polling
+
+DATABASE_URL=postgresql+asyncpg://postgres:password@localhost:5432/wilddeck
+TEST_DATABASE_URL=postgresql+asyncpg://postgres:password@localhost:5432/wilddeck_test
+```
+
+### 4. Database Migrations
+
+Apply database migrations to native PostgreSQL:
+```powershell
+# Run online migrations
 python -m alembic upgrade head
 
-# Run offline migrations (output SQL without connecting)
+# Or check SQL output offline without connecting
 python -m alembic upgrade head --sql
 
-# Rollback last migration
+# Roll back the most recent migration
 python -m alembic downgrade -1
 ```
 
-## Running Tests
-Run the test suite:
-```bash
+### 5. Running the Application
+
+Start the bot entry point natively:
+```powershell
+python -m app.main
+```
+
+### 6. Tests and Quality Checks
+
+Run the test suite and linters:
+```powershell
+# Run all tests
 python -m pytest -q
+
+# Run Ruff linter and code formatter checks
 python -m ruff check .
 python -m ruff format --check .
 ```
 
-### PostgreSQL Integration Testing
-By default, persistence unit tests execute against an in-memory SQLite database using `StaticPool` and JSON emulation.
+### 7. PostgreSQL Integration Testing
 
-To run persistence integration tests against a real PostgreSQL instance:
-1. Start PostgreSQL (e.g. via `docker compose up -d postgres`).
-2. Set the `TEST_DATABASE_URL` environment variable:
-```bash
-$env:TEST_DATABASE_URL = "postgresql+asyncpg://uno:uno@localhost:5432/uno"  # PowerShell
-# or: export TEST_DATABASE_URL="postgresql+asyncpg://uno:uno@localhost:5432/uno"
-python -m pytest tests/persistence -v
-```
+- By default, unit tests execute against an in-memory SQLite database using `StaticPool` and JSON emulation, requiring zero external infrastructure.
+- To execute PostgreSQL integration tests against your local database:
+  1. Ensure your local PostgreSQL service is running.
+  2. Set `TEST_DATABASE_URL` in `.env` or in the environment:
+     ```powershell
+     $env:TEST_DATABASE_URL = "postgresql+asyncpg://postgres:password@localhost:5432/wilddeck_test"
+     python -m pytest tests/persistence -v
+     ```
+  3. Integration tests verify native PostgreSQL `JSONB` storage, indexing, and transactional concurrency on `wilddeck_test`. The development database (`wilddeck`) is never dropped or touched by test runs.
+
+## Redis Note
+Redis is optional in WildDeck. Persistent game records, snapshot storage, and optimistic concurrency are stored in PostgreSQL as the single source of truth. Redis is not required for native local development or running tests.
 
 ## Service Layer Usage Example
 
@@ -121,7 +193,7 @@ from app.engine.game import Game
 from app.engine.player import Player
 from app.services.persistence import GamePersistenceService
 
-db = Database("postgresql+asyncpg://uno:uno@localhost:5432/uno")
+db = Database("postgresql+asyncpg://postgres:password@localhost:5432/wilddeck")
 service = GamePersistenceService(db)
 
 # 1. Create a game and persist it
@@ -143,5 +215,5 @@ print(f"Recovered {len(report.restored)} active games, {len(report.failed)} fail
 ```
 
 ## Known Limitations
-- Telegram-specific features, user profiles, avatars, and message handlers are deferred to Phase 05.
-- Redis-based transient caching and ephemeral lobbies will be integrated alongside persistence in subsequent phases.
+- Telegram user profiles, avatars, and Telegram-specific chat state are deferred to Phase 05.
+- Real-time matchmaking and ephemeral group lobby management will be introduced in subsequent phases.

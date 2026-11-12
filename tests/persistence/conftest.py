@@ -6,6 +6,7 @@ import os
 from collections.abc import AsyncIterator
 
 import pytest
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -30,7 +31,20 @@ async def test_engine() -> AsyncIterator[AsyncEngine]:
             poolclass=StaticPool,
         )
     else:
+        dev_url = os.getenv("DATABASE_URL", "")
+        if dev_url and TEST_DB_URL == dev_url:
+            raise ValueError(
+                "TEST_DATABASE_URL must point to a dedicated test database, "
+                "not the development database."
+            )
+
         engine = create_async_engine(TEST_DB_URL, pool_pre_ping=True)
+        try:
+            async with engine.connect() as conn:
+                await conn.execute(text("SELECT 1"))
+        except Exception as exc:
+            await engine.dispose()
+            pytest.skip(f"PostgreSQL test database unavailable ({TEST_DB_URL}): {exc}")
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
